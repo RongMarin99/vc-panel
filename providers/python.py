@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 from typing import Optional, Callable
@@ -88,12 +89,16 @@ class PythonManager(BaseManager):
             pth.write_text(text.replace("#import site", "import site"))
 
         get_pip = install_dir / "get-pip.py"
-        urllib.request.urlretrieve("https://bootstrap.pypa.io/get-pip.py", str(get_pip))
+        try:
+            urllib.request.urlretrieve("https://bootstrap.pypa.io/get-pip.py", str(get_pip))
+        except Exception:
+            return  # pip bootstrap optional; python still usable without it
 
         python_exe = install_dir / "python.exe"
         if python_exe.exists():
             subprocess.run([str(python_exe), str(get_pip)], cwd=str(install_dir),
-                           capture_output=True)
+                           capture_output=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
 
     def _install_mac(self, version: str) -> bool:
         brew = shutil.which("brew")

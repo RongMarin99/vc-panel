@@ -1,11 +1,12 @@
-from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QFont
 
-ASSETS = Path(__file__).parent.parent.parent / "assets"
+from utils.resource_path import resource_path
+
+ASSETS = resource_path("assets")
 
 
 class AboutPage(QWidget):

@@ -31,7 +31,14 @@ class Database:
             (name, path)
         )
         self.conn.commit()
-        return cur.lastrowid
+        if cur.lastrowid:
+            return cur.lastrowid
+        # Already exists — return existing id
+        row = self.conn.execute("SELECT id FROM projects WHERE path = ?", (path,)).fetchone()
+        return row["id"] if row else 0
+
+    def close(self):
+        self.conn.close()
 
     def remove_project(self, project_id: int):
         self.conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))

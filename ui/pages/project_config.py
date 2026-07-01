@@ -108,14 +108,14 @@ class ProjectConfigPage(QWidget):
         layout.addSpacing(20)
 
         self._table = QTableWidget()
-        self._table.setColumnCount(6)
-        self._table.setHorizontalHeaderLabels(["Name", "Path", "PHP", "Node", "Python", ""])
+        self._table.setColumnCount(8)
+        self._table.setHorizontalHeaderLabels(["Name", "Path", "PHP", "Node", "Python", "Java", ".NET", ""])
         h = self._table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for col in range(2, 5):
+        for col in range(2, 7):
             h.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        h.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -131,21 +131,22 @@ class ProjectConfigPage(QWidget):
             row = self._table.rowCount()
             self._table.insertRow(row)
             self._table.setItem(row, 0, QTableWidgetItem(proj["name"]))
+            from PyQt6.QtGui import QColor
             path_item = QTableWidgetItem(proj["path"])
-            path_item.setForeground(Qt.GlobalColor.gray)
+            path_item.setForeground(QColor("#8b949e"))
             self._table.setItem(row, 1, path_item)
-            for col, tool in enumerate(["php", "node", "python"], 2):
+            for col, tool in enumerate(["php", "node", "python", "java", "dotnet"], 2):
                 ver = proj["versions"].get(tool, "—")
                 item = QTableWidgetItem(ver)
                 if ver != "—":
-                    item.setForeground(Qt.GlobalColor.cyan)
+                    item.setForeground(QColor("#58a6ff"))
                 self._table.setItem(row, col, item)
             # Delete button
             del_btn = QPushButton("✕")
             del_btn.setObjectName("danger")
             del_btn.setFixedSize(28, 28)
             del_btn.clicked.connect(lambda _, pid=proj["id"]: self._remove(pid))
-            self._table.setCellWidget(row, 5, del_btn)
+            self._table.setCellWidget(row, 7, del_btn)
 
     def _add(self):
         dlg = _AddDialog(self.registry, self)

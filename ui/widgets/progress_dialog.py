@@ -62,18 +62,27 @@ class DownloadProgressDialog(QDialog):
         self.close_btn.setEnabled(False)
         self.close_btn.clicked.connect(self.accept)
         row.addWidget(self.close_btn)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self._cancel)
+        row.addWidget(self.cancel_btn)
         layout.addLayout(row)
 
     def _on_progress(self, downloaded: int, total: int):
         self.bar.setValue(int(downloaded / total * 100))
         self.detail.setText(f"{self._fmt(downloaded)} / {self._fmt(total)}")
 
+    def _cancel(self):
+        self._worker.terminate()
+        self.reject()
+
     def _on_done(self, ok: bool):
         self.bar.setValue(100)
+        self.cancel_btn.setEnabled(False)
         if ok:
             self.title.setText("Installation complete!")
             self.title.setStyleSheet("font-size: 14px; font-weight: 600; color: #3fb950;")
             self.detail.setText("Done.")
+            self.close_btn.setEnabled(True)
         else:
             self._fail("Installation failed.")
 
@@ -85,6 +94,7 @@ class DownloadProgressDialog(QDialog):
         self.title.setStyleSheet("font-size: 14px; font-weight: 600; color: #f85149;")
         self.detail.setText(msg)
         self.close_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
 
     @staticmethod
     def _fmt(b: int) -> str:

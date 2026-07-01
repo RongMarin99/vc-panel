@@ -1,3 +1,4 @@
+import re
 import shutil
 from pathlib import Path
 from typing import Optional, Callable
@@ -13,7 +14,7 @@ from utils.platform_utils import is_windows, is_mac, get_arch
 
 # PHP version → Visual C++ runtime used in Windows builds
 _VC_MAP = {
-    "8.3": "vs17", "8.2": "vs16", "8.1": "vs16",
+    "8.4": "vs17", "8.3": "vs17", "8.2": "vs16", "8.1": "vs16",
     "8.0": "vs16", "7.4": "vc15", "7.3": "vc15",
 }
 
@@ -55,7 +56,10 @@ class PHPManager(BaseManager):
                     active=self.current() == ver,
                     release_date=entry.get("latestReleaseDate"),
                 ))
-            versions.sort(key=lambda v: [int(x) for x in v.version.split(".")], reverse=True)
+            versions.sort(
+                key=lambda v: [int(x) for x in re.split(r"[.+_\-]", v.version) if x.isdigit()],
+                reverse=True,
+            )
             self._cache = versions
             return versions
         except Exception:

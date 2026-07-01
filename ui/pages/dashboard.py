@@ -1,6 +1,7 @@
 import re
 import shutil
 import subprocess
+import sys
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame
 )
@@ -28,8 +29,10 @@ def _system_version(tool: str) -> str | None:
     if not exe:
         return None
     try:
+        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         out = subprocess.run(
-            [exe] + args[1:], capture_output=True, text=True, timeout=3
+            [exe] + args[1:], capture_output=True, text=True, timeout=3,
+            creationflags=flags,
         )
         # java -version writes to stderr; everything else uses stdout
         text = out.stderr + out.stdout

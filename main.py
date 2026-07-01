@@ -1,13 +1,27 @@
 import sys
 import os
 
-# Python 3.8+ on Windows changed DLL search behavior — Qt6 DLLs must be registered explicitly
+# Register Qt6 DLLs — works in both dev and PyInstaller frozen exe
 if sys.platform == "win32":
-    import importlib.util
-    _spec = importlib.util.find_spec("PyQt6")
-    if _spec and _spec.origin:
-        _qt6_bin = os.path.join(os.path.dirname(_spec.origin), "Qt6", "bin")
-        if os.path.isdir(_qt6_bin):
+    if getattr(sys, "frozen", False):
+        _base = os.path.dirname(sys.executable)
+        # cx_Freeze: packages under lib/, Qt6 DLLs directly in lib/PyQt6/Qt6/
+        for _p in [
+            os.path.join(_base, "lib", "PyQt6", "Qt6"),
+            os.path.join(_base, "lib", "PyQt6", "Qt6", "bin"),
+            os.path.join(_base, "PyQt6", "Qt6", "bin"),
+            _base,
+        ]:
+            if os.path.isdir(_p):
+                os.add_dll_directory(_p)
+    else:
+        import importlib.util
+        _spec = importlib.util.find_spec("PyQt6")
+        _qt6_bin = (
+            os.path.join(os.path.dirname(_spec.origin), "Qt6", "bin")
+            if _spec and _spec.origin else ""
+        )
+        if _qt6_bin and os.path.isdir(_qt6_bin):
             os.add_dll_directory(_qt6_bin)
 
 from PyQt6.QtWidgets import QApplication, QStyleFactory
