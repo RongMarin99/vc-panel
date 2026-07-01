@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "vc"
+version = "0.1.0"
+description = "Version Controller — manage PHP, Node.js, Python environments"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+    "PyQt6>=6.6.0",
+    "requests>=2.31.0",
+    "packaging>=23.0",
+]
+
+[project.scripts]
+vc = "main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "providers*", "storage*", "ui*", "utils*"]
