@@ -47,6 +47,9 @@ QMainWindow, QWidget {{
     background-color: {C['bg']};
     color: {C['text']};
 }}
+QLabel {{
+    background: transparent;
+}}
 #sidebar {{
     background-color: {C['surface']};
     border-right: 1px solid {C['border']};

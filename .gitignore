@@ -4,8 +4,7 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
-!dist/
-
+dist/
 build/
 .venv/
 venv/
@@ -14,3 +13,4 @@ venv/
 .idea/
 .vscode/
 *.log
+.claude/*

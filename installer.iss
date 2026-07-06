@@ -29,8 +29,7 @@ MinVersion=10.0
 UninstallDisplayName={#MyAppFullName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 DisableProgramGroupPage=yes
-; Uncomment and set icon path once you have a .ico file:
-; SetupIconFile=assets\icon.ico
+SetupIconFile=assets\icon.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

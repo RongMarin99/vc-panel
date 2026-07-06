@@ -7,6 +7,8 @@ from PyQt6.QtGui import QColor, QFont
 
 import ui.theme as theme
 from ui.widgets.progress_dialog import DownloadProgressDialog
+from ui.pages.php_extensions_dialog import PHPExtensionsDialog
+from ui.pages.php_settings_dialog import PHPSettingsDialog
 
 TOOL_ICONS = {"php": "🐘", "node": "⬢", "python": "🐍", "java": "☕", "dotnet": "🔷"}
 MONO = QFont("Cascadia Code")
@@ -28,6 +30,9 @@ def _make_btn(label: str, kind: str) -> QPushButton:
     elif kind == "danger":
         ss = f"background:transparent; color:{C['red']}; border:1.5px solid {C['red']}; font-weight:normal;"
         hover = f"background:{C['red']}15;"
+    elif kind == "ext":
+        ss = f"background:transparent; color:{C['green']}; border:1.5px solid {C['green']}; font-weight:normal;"
+        hover = f"background:{C['green']}15;"
     else:
         ss = hover = ""
     btn.setStyleSheet(
@@ -83,7 +88,7 @@ class ToolTab(QWidget):
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(3, 170)
+        self._table.setColumnWidth(3, 290 if self.name == "php" else 170)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -162,6 +167,15 @@ class ToolTab(QWidget):
                 u.setSizePolicy(*_sp)
                 u.clicked.connect(lambda _, v=version: self._use(v))
                 layout.addWidget(u, 1)
+            if self.name == "php":
+                e = _make_btn("Ext", "ext")
+                e.setSizePolicy(*_sp)
+                e.clicked.connect(lambda _, v=version: self._open_extensions(v))
+                layout.addWidget(e, 1)
+                s = _make_btn("INI", "ext")
+                s.setSizePolicy(*_sp)
+                s.clicked.connect(lambda _, v=version: self._open_settings(v))
+                layout.addWidget(s, 1)
             d = _make_btn("Remove", "danger")
             d.setSizePolicy(*_sp)
             d.clicked.connect(lambda _, v=version: self._uninstall(v))
@@ -198,6 +212,14 @@ class ToolTab(QWidget):
             self.manager.uninstall(version)
             self._update_active_label()
             self._refresh_rows()
+
+    def _open_extensions(self, version: str):
+        install_path = self.manager.install_path(version)
+        PHPExtensionsDialog(version, install_path, self).exec()
+
+    def _open_settings(self, version: str):
+        install_path = self.manager.install_path(version)
+        PHPSettingsDialog(version, install_path, self).exec()
 
     def _refresh_rows(self):
         installed = {v.version for v in self.manager.list_installed()}

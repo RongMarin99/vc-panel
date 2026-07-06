@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 import ui.theme as theme
+from utils.startup import is_startup_enabled, set_startup
 
 
 def _card() -> QFrame:
@@ -186,6 +187,31 @@ class SettingsPage(QWidget):
             layout.addWidget(card3)
             layout.addSpacing(20)
 
+        # ── Startup & Tray ───────────────────────────────────
+        layout.addWidget(_section_label("Startup & Background"))
+        card5 = _card()
+        cl5 = QVBoxLayout(card5)
+        cl5.setContentsMargins(20, 4, 20, 4)
+        cl5.setSpacing(0)
+
+        self._startup_btn = self._toggle_row(
+            cl5,
+            "Run at startup",
+            "Launch VC automatically when Windows starts",
+            is_startup_enabled(),
+            self._toggle_startup,
+        )
+        cl5.addWidget(_divider())
+        self._tray_btn = self._toggle_row(
+            cl5,
+            "Minimize to tray on close",
+            "Keep VC running in the background when the window is closed",
+            self.config.get("minimize_to_tray", "true") == "true",
+            self._toggle_tray,
+        )
+        layout.addWidget(card5)
+        layout.addSpacing(20)
+
         # ── System ────────────────────────────────────────────
         layout.addWidget(_section_label("System"))
         card4 = _card()
@@ -284,6 +310,60 @@ class SettingsPage(QWidget):
         )
         self._update_path_status()
 
+    def _toggle_row(self, parent_layout, label: str, hint: str,
+                    initial: bool, callback) -> QPushButton:
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 12, 0, 12)
+
+        col = QVBoxLayout()
+        lbl = QLabel(label)
+        lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
+        col.addWidget(lbl)
+        hint_lbl = QLabel(hint)
+        hint_lbl.setStyleSheet("font-size: 12px; color: #8b949e;")
+        col.addWidget(hint_lbl)
+        row.addLayout(col, 1)
+
+        btn = QPushButton()
+        btn.setFixedSize(64, 28)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setCheckable(True)
+        btn.setChecked(initial)
+        self._apply_toggle_style(btn)
+        btn.toggled.connect(lambda checked, cb=callback, b=btn: (cb(checked), self._apply_toggle_style(b)))
+        row.addWidget(btn)
+
+        parent_layout.addLayout(row)
+        return btn
+
+    def _apply_toggle_style(self, btn: QPushButton):
+        if btn.isChecked():
+            btn.setText("ON")
+            btn.setStyleSheet(
+                "QPushButton { background: #1a7f37; color: #fff; border: none; "
+                "border-radius: 14px; font-size: 11px; font-weight: 700; }"
+                "QPushButton:hover { background: #1c8c3d; }"
+            )
+        else:
+            btn.setText("OFF")
+            btn.setStyleSheet(
+                "QPushButton { background: #d0d7de; color: #57606a; border: none; "
+                "border-radius: 14px; font-size: 11px; font-weight: 700; }"
+                "QPushButton:hover { background: #b8c0c8; }"
+            )
+
+    def _toggle_startup(self, enabled: bool):
+        set_startup(enabled)
+
+    def _toggle_tray(self, enabled: bool):
+        self.config.set("minimize_to_tray", "true" if enabled else "false")
+
     def on_show(self):
         self._update_theme_buttons()
         self._update_path_status()
+        # Sync startup toggle with actual registry state
+        if hasattr(self, "_startup_btn"):
+            self._startup_btn.blockSignals(True)
+            self._startup_btn.setChecked(is_startup_enabled())
+            self._apply_toggle_style(self._startup_btn)
+            self._startup_btn.blockSignals(False)

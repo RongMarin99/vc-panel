@@ -52,10 +52,13 @@ build_options = {
     "excludes": ["tkinter", "unittest", "email", "xml"],
 }
 
+_icon = "assets/icon.ico" if os.path.isfile("assets/icon.ico") else None
+
 exe = Executable(
     script="main.py",
     base="gui" if sys.platform == "win32" else None,
     target_name="VC.exe",
+    icon=_icon,
 )
 
 setup(

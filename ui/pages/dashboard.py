@@ -3,8 +3,9 @@ import shutil
 import subprocess
 import sys
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame, QMenu
 )
+from PyQt6.QtCore import Qt
 
 TOOL_ICONS = {
     "php":    "🐘",
@@ -45,9 +46,13 @@ def _system_version(tool: str) -> str | None:
 class ToolCard(QFrame):
     def __init__(self, name: str, manager, parent=None):
         super().__init__(parent)
+        self._name = name
+        self._manager = manager
         self.setObjectName("card")
         self.setMinimumWidth(230)
         self.setMaximumWidth(310)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 16, 18, 16)
@@ -128,6 +133,35 @@ class ToolCard(QFrame):
         count.setStyleSheet("color: #8b949e; font-size: 12px;")
         layout.addWidget(count)
         layout.addStretch()
+
+    def _show_context_menu(self, pos):
+        if self._name != "php":
+            return
+        version = self._manager.current()
+        menu = QMenu(self)
+
+        ext_action = menu.addAction("⚙  Extensions")
+        ext_action.setEnabled(bool(version))
+
+        settings_action = menu.addAction("📄  Settings  (upload size, limits)")
+        settings_action.setEnabled(bool(version))
+
+        if not version:
+            menu.addSeparator()
+            note = menu.addAction("No active PHP version")
+            note.setEnabled(False)
+
+        action = menu.exec(self.mapToGlobal(pos))
+        if not action or not version:
+            return
+
+        install_path = self._manager.install_path(version)
+        if action == ext_action:
+            from ui.pages.php_extensions_dialog import PHPExtensionsDialog
+            PHPExtensionsDialog(version, install_path, self).exec()
+        elif action == settings_action:
+            from ui.pages.php_settings_dialog import PHPSettingsDialog
+            PHPSettingsDialog(version, install_path, self).exec()
 
 
 class DashboardPage(QWidget):
