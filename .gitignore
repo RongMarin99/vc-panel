@@ -4,8 +4,8 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
-dist/git add dist/
-dist/_test_qt.exe
+!dist/
+
 build/
 .venv/
 venv/
