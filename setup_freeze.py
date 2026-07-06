@@ -27,6 +27,19 @@ _python3_dll = next(
 )
 _extra_dlls = [(_python3_dll, "python3.dll")] if _python3_dll else []
 
+# VCRUNTIME DLLs — bundle so app works on clean machines without VC++ Redist installed
+_vcrt_sources = [
+    ("MSVCP140.dll",      [r"C:\Windows\System32\MSVCP140.dll"]),
+    ("VCRUNTIME140.dll",  [r"C:\Python313\VCRUNTIME140.dll",
+                           r"C:\Windows\System32\VCRUNTIME140.dll"]),
+    ("VCRUNTIME140_1.dll",[r"C:\Windows\System32\VCRUNTIME140_1.dll"]),
+]
+_vcrt_dlls = []
+for _name, _candidates in _vcrt_sources:
+    _src = next((p for p in _candidates if os.path.isfile(p) and os.path.getsize(p) > 0), None)
+    if _src:
+        _vcrt_dlls.append((_src, _name))
+
 build_options = {
     "packages": [
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets",
@@ -35,7 +48,7 @@ build_options = {
     ],
     "include_files": [
         ("assets", "assets"),
-    ] + _qt6_dlls + _extra_dlls,
+    ] + _qt6_dlls + _extra_dlls + _vcrt_dlls,
     "excludes": ["tkinter", "unittest", "email", "xml"],
 }
 
