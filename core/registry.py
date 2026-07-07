@@ -4,6 +4,8 @@ from providers.node import NodeManager
 from providers.python import PythonManager
 from providers.java import JavaManager
 from providers.dotnet import DotnetManager
+from providers.go import GoManager
+from providers.rust import RustManager
 from core.base_manager import BaseManager
 
 
@@ -15,6 +17,8 @@ class Registry:
             "python": PythonManager(config),
             "java":   JavaManager(config),
             "dotnet": DotnetManager(config),
+            "go":     GoManager(config),
+            "rust":   RustManager(config),
         }
 
     def get(self, name: str) -> BaseManager | None:

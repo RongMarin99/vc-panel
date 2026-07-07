@@ -5,6 +5,7 @@ from PyQt6.QtGui import QFont
 NAV_ITEMS = [
     ("dashboard", "Dashboard", "🏠"),
     ("versions",  "Versions",  "📦"),
+    ("databases", "Databases", "🗄"),
     ("projects",  "Projects",  "📁"),
     ("settings",  "Settings",  "⚙"),
     ("about",     "Support ☕", ""),
@@ -52,7 +53,7 @@ class Sidebar(QWidget):
 
         layout.addStretch()
 
-        ver = QLabel("  v0.1.0")
+        ver = QLabel("  v0.1.2")
         ver.setStyleSheet("color: #6e7681; font-size: 11px; padding: 12px 16px;")
         layout.addWidget(ver)
 

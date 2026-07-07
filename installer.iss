@@ -1,6 +1,6 @@
 #define MyAppName "VC"
 #define MyAppFullName "VC - Version Controller"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "marin"
 #define MyAppURL "https://github.com/RongMarin99/vc-panel"
 #define MyAppExeName "VC.exe"

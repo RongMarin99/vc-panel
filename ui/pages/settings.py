@@ -222,7 +222,7 @@ class SettingsPage(QWidget):
         sys_info = [
             ("Platform", f"{sys.platform}  ·  {platform.machine()}"),
             ("Python",   sys.version.split()[0]),
-            ("VC",       "0.1.0"),
+            ("VC",       "0.1.2"),
         ]
         for i, (key, val) in enumerate(sys_info):
             row = QHBoxLayout()

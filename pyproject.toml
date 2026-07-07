@@ -4,8 +4,8 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "vc"
-version = "0.1.0"
-description = "Version Controller — manage PHP, Node.js, Python environments"
+version = "0.1.2"
+description = "Version Controller — manage PHP, Node.js, Python, Go, Rust, databases"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 dependencies = [

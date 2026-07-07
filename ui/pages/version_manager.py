@@ -10,7 +10,7 @@ from ui.widgets.progress_dialog import DownloadProgressDialog
 from ui.pages.php_extensions_dialog import PHPExtensionsDialog
 from ui.pages.php_settings_dialog import PHPSettingsDialog
 
-TOOL_ICONS = {"php": "🐘", "node": "⬢", "python": "🐍", "java": "☕", "dotnet": "🔷"}
+TOOL_ICONS = {"php": "🐘", "node": "⬢", "python": "🐍", "java": "☕", "dotnet": "🔷", "go": "🐹", "rust": "🦀"}
 MONO = QFont("Cascadia Code")
 MONO.setStyleHint(QFont.StyleHint.Monospace)
 MONO.setPointSize(12)

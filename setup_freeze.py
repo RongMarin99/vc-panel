@@ -63,7 +63,7 @@ exe = Executable(
 
 setup(
     name="VC",
-    version="0.1.0",
+    version="0.1.2",
     description="VC — Version Controller",
     options={"build_exe": build_options},
     executables=[exe],

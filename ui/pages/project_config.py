@@ -108,14 +108,16 @@ class ProjectConfigPage(QWidget):
         layout.addSpacing(20)
 
         self._table = QTableWidget()
-        self._table.setColumnCount(8)
-        self._table.setHorizontalHeaderLabels(["Name", "Path", "PHP", "Node", "Python", "Java", ".NET", ""])
+        self._table.setColumnCount(10)
+        self._table.setHorizontalHeaderLabels(
+            ["Name", "Path", "PHP", "Node", "Python", "Java", ".NET", "Go", "Rust", ""]
+        )
         h = self._table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        for col in range(2, 7):
+        for col in range(2, 9):
             h.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        h.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -135,7 +137,7 @@ class ProjectConfigPage(QWidget):
             path_item = QTableWidgetItem(proj["path"])
             path_item.setForeground(QColor("#8b949e"))
             self._table.setItem(row, 1, path_item)
-            for col, tool in enumerate(["php", "node", "python", "java", "dotnet"], 2):
+            for col, tool in enumerate(["php", "node", "python", "java", "dotnet", "go", "rust"], 2):
                 ver = proj["versions"].get(tool, "—")
                 item = QTableWidgetItem(ver)
                 if ver != "—":
@@ -146,7 +148,7 @@ class ProjectConfigPage(QWidget):
             del_btn.setObjectName("danger")
             del_btn.setFixedSize(28, 28)
             del_btn.clicked.connect(lambda _, pid=proj["id"]: self._remove(pid))
-            self._table.setCellWidget(row, 7, del_btn)
+            self._table.setCellWidget(row, 9, del_btn)
 
     def _add(self):
         dlg = _AddDialog(self.registry, self)

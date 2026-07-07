@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QStackedWidget, QSystemTrayIcon, QMenu,
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget,
+    QSystemTrayIcon, QMenu,
 )
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QAction
 from PyQt6.QtCore import Qt
@@ -10,11 +11,13 @@ from ui.pages.version_manager import VersionManagerPage
 from ui.pages.project_config import ProjectConfigPage
 from ui.pages.settings import SettingsPage
 from ui.pages.about import AboutPage
+from ui.pages.database_page import DatabasePage
 import ui.theme as theme
 from core.registry import Registry
 from storage.config import Config
 from storage.db import Database
 from utils.path_manager import add_to_path
+from ui.widgets.update_banner import UpdateBanner
 
 
 def _load_icon() -> QIcon:
@@ -67,12 +70,22 @@ class MainWindow(QMainWindow):
         self.sidebar.page_changed.connect(self._navigate)
         main.addWidget(self.sidebar)
 
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        self._update_banner = UpdateBanner()
+        right_layout.addWidget(self._update_banner)
+
         self.stack = QStackedWidget()
-        main.addWidget(self.stack)
+        right_layout.addWidget(self.stack)
+        main.addWidget(right)
 
         self.pages = {
             "dashboard": DashboardPage(self.registry, self.config),
             "versions":  VersionManagerPage(self.registry, self.config),
+            "databases": DatabasePage(self.config),
             "projects":  ProjectConfigPage(self.registry, self.config, self.db),
             "settings":  SettingsPage(self.config),
             "about":     AboutPage(),
