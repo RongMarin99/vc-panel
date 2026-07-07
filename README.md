@@ -121,8 +121,3 @@ VC-Panel is free and open-source software. You are free to use, modify, distribu
 
 **One panel. Every language. Total control.**
 
-<img width="1095" height="727" alt="Screenshot 2026-07-06 103749" src="https://github.com/user-attachments/assets/7f22ca07-74c9-42c4-9a94-cc11a14b439b" />
-
-
-<img width="1096" height="726" alt="Screenshot 2026-07-07 084538" src="https://github.com/user-attachments/assets/592bfa1a-c3cb-453e-a2d9-12b881c2af7a" />
-
