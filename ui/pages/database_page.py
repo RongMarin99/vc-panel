@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QMessageBox, QSizePolicy,
+    QDialog, QLineEdit, QDialogButtonBox, QFormLayout,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
@@ -107,6 +108,20 @@ class _ActionThread(QThread):
             self.finished.emit(False, str(e))
 
 
+class _ConnTestThread(QThread):
+    done = pyqtSignal(bool, int)  # (reachable, port)
+
+    def __init__(self, host: str, port: int):
+        super().__init__()
+        self._host = host
+        self._port = port
+
+    def run(self):
+        from providers._svc_win import tcp_test
+        ok = tcp_test(self._host, self._port)
+        self.done.emit(ok, self._port)
+
+
 # ── Per-DB Tab ────────────────────────────────────────────────────────────────
 
 class DBVersionTab(QWidget):
@@ -180,6 +195,20 @@ class DBVersionTab(QWidget):
         self._port_btn.clicked.connect(self._change_port)
         sp_layout.addWidget(self._port_btn)
 
+        self._test_btn = QPushButton("⚡ Test")
+        self._test_btn.setFixedHeight(32)
+        self._test_btn.setFixedWidth(72)
+        self._test_btn.setToolTip("Test TCP connection to configured port")
+        self._test_btn.setStyleSheet(
+            f"QPushButton {{ background:transparent; color:{C['text2']};"
+            f" border:1.5px solid {C['border']}; border-radius:5px;"
+            f" font-size:12px; font-weight:600; }}"
+            f"QPushButton:hover {{ background:{C['hover']}; }}"
+            f"QPushButton:disabled {{ opacity:0.4; }}"
+        )
+        self._test_btn.clicked.connect(self._test_conn)
+        sp_layout.addWidget(self._test_btn)
+
         layout.addWidget(self._status_panel)
         layout.addSpacing(16)
 
@@ -250,12 +279,275 @@ class DBVersionTab(QWidget):
         self._start_btn.setEnabled(has_svc and info.status == "stopped")
         self._stop_btn.setEnabled(has_svc and info.status == "running")
         self._port_btn.setEnabled(bool(info.config_path))
+        # Show "Grant Permissions" tip when service exists but start/stop fail
+        if has_svc and not getattr(self, "_grant_shown", False):
+            self._grant_shown = True
+            C = theme.current_colors()
+            tip = QLabel(
+                "⚠  System service detected. If Start/Stop fail, click "
+                "<b>Grant Permissions</b> once (requires Administrator) to allow "
+                "non-admin control."
+            )
+            tip.setWordWrap(True)
+            tip.setStyleSheet(
+                f"font-size:11px; color:{C['text2']}; padding:4px 0;"
+            )
+            grant_btn = QPushButton("Grant Permissions (run as admin once)")
+            grant_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            grant_btn.setStyleSheet(
+                f"QPushButton {{ background:transparent; color:{C['blue']};"
+                f" border:1px solid {C['blue']}; border-radius:5px;"
+                f" font-size:11px; padding:4px 10px; }}"
+                f"QPushButton:hover {{ background:{C['blue']}15; }}"
+            )
+            grant_btn.clicked.connect(lambda: self._grant_permissions(info.service_key))
+            # Insert at bottom of status panel
+            self._status_panel.layout().addWidget(tip)
+            self._status_panel.layout().addWidget(grant_btn)
+
+        # phpMyAdmin hint (MySQL only, shown once, only when running)
+        if (self._svc.name == "mysql" and info.status == "running"
+                and not getattr(self, "_phpmyadmin_hint_shown", False)):
+            self._phpmyadmin_hint_shown = True
+            self._inject_phpmyadmin_hint(info.port)
+
+        # Port 80 grant hint for web servers (shown once)
+        if (self._svc.name in ("apache", "nginx", "traefik")
+                and not getattr(self, "_port80_hint_shown", False)):
+            self._port80_hint_shown = True
+            self._inject_port80_hint()
+
+    def _inject_phpmyadmin_hint(self, port: int):
+        from providers.mysql import phpmyadmin_installed, find_phpmyadmin_dir, _PMA_VERSION
+        C = theme.current_colors()
+        installed = phpmyadmin_installed()
+        pma_dir = find_phpmyadmin_dir()
+
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame {{ background:{C['blue']}10; border:1px solid {C['blue']}40;"
+            f" border-radius:6px; }}"
+        )
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 10, 14, 10)
+        cl.setSpacing(6)
+
+        title_lbl = QLabel("phpMyAdmin")
+        title_lbl.setStyleSheet(
+            f"font-size:12px; font-weight:700; color:{C['blue']}; border:none;"
+        )
+        cl.addWidget(title_lbl)
+
+        if not installed:
+            if pma_dir:
+                msg = QLabel(
+                    f"phpMyAdmin is <b>not installed</b>.<br>"
+                    f"Click below to download v{_PMA_VERSION} and configure it automatically.<br>"
+                    f"It will be placed at <code>{pma_dir}</code><br>"
+                    f"and accessible at <b>http://localhost/phpmyadmin</b>."
+                )
+            else:
+                msg = QLabel(
+                    "phpMyAdmin is not installed and no supported web stack (Laragon/XAMPP) was found.<br>"
+                    "Install Laragon or XAMPP first, then click Setup."
+                )
+            msg.setTextFormat(Qt.TextFormat.RichText)
+            msg.setWordWrap(True)
+            msg.setStyleSheet(
+                f"font-size:11px; color:{C['text2']}; border:none; background:transparent;"
+            )
+            cl.addWidget(msg)
+
+            setup_btn = QPushButton(f"⬇  Download & Setup phpMyAdmin {_PMA_VERSION}")
+            setup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            setup_btn.setEnabled(bool(pma_dir))
+            setup_btn.setStyleSheet(
+                f"QPushButton {{ background:{C['blue']}; color:#fff;"
+                f" border:none; border-radius:5px;"
+                f" font-size:11px; font-weight:600; padding:5px 12px; }}"
+                f"QPushButton:hover {{ background:{C['blue']}cc; }}"
+                f"QPushButton:disabled {{ opacity:0.4; }}"
+            )
+            setup_btn.clicked.connect(lambda: self._setup_phpmyadmin(port, card, cl))
+            cl.addWidget(setup_btn)
+        else:
+            url = "http://localhost/phpmyadmin"
+            msg = QLabel(
+                f"phpMyAdmin is installed at <code>{pma_dir}</code>.<br>"
+                f"Open: <b>{url}</b> — login with user <b>root</b>, password empty.<br>"
+                f"To set a root password use the button below."
+            )
+            msg.setTextFormat(Qt.TextFormat.RichText)
+            msg.setWordWrap(True)
+            msg.setStyleSheet(
+                f"font-size:11px; color:{C['text2']}; border:none; background:transparent;"
+            )
+            cl.addWidget(msg)
+
+            pwd_btn = QPushButton("🔑  Set Root Password…")
+            pwd_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            pwd_btn.setStyleSheet(
+                f"QPushButton {{ background:transparent; color:{C['blue']};"
+                f" border:1px solid {C['blue']}; border-radius:5px;"
+                f" font-size:11px; padding:4px 10px; }}"
+                f"QPushButton:hover {{ background:{C['blue']}15; }}"
+            )
+            pwd_btn.clicked.connect(lambda: self._set_mysql_root_password(port))
+            cl.addWidget(pwd_btn)
+
+        parent_layout = self.layout()
+        parent_layout.insertWidget(1, card)
+        parent_layout.insertSpacing(2, 8)
+
+    def _setup_phpmyadmin(self, port: int, card: QFrame, card_layout: QVBoxLayout):
+        from providers.mysql import _PMA_VERSION
+
+        class _PmaManager:
+            display_name = "phpMyAdmin"
+            def install(self_, version, progress_callback=None):
+                from providers.mysql import setup_phpmyadmin
+                return setup_phpmyadmin(version, port, progress_callback)
+
+        dlg = DownloadProgressDialog(_PmaManager(), _PMA_VERSION, self)
+        dlg.exec()
+
+        # Refresh hint card to show "installed" state
+        self._phpmyadmin_hint_shown = False
+        self._inject_phpmyadmin_hint(port)
+
+    def _set_mysql_root_password(self, port: int):
+        from PyQt6.QtWidgets import QDialog, QLineEdit, QDialogButtonBox, QFormLayout
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Set MySQL Root Password")
+        dlg.setMinimumWidth(360)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        layout.addWidget(QLabel("Set a new password for the <b>root</b> user:"))
+        form = QFormLayout()
+        pwd_edit = QLineEdit()
+        pwd_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        pwd_edit.setPlaceholderText("New password")
+        form.addRow("Password:", pwd_edit)
+        confirm_edit = QLineEdit()
+        confirm_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        confirm_edit.setPlaceholderText("Confirm password")
+        form.addRow("Confirm:", confirm_edit)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        pwd = pwd_edit.text()
+        if pwd != confirm_edit.text():
+            QMessageBox.warning(self, "Mismatch", "Passwords do not match.")
+            return
+        if not pwd:
+            QMessageBox.warning(self, "Empty", "Password cannot be empty.")
+            return
+
+        # Find mysqladmin in VC-managed installed versions
+        mysqladmin = None
+        for d in self._svc.versions_root.iterdir():
+            if (d / ".vc_managed").exists() and self._svc.is_vc_running(d.name):
+                candidate = d / "bin" / "mysqladmin.exe"
+                if candidate.exists():
+                    mysqladmin = str(candidate)
+                    break
+
+        if not mysqladmin:
+            QMessageBox.warning(self, "Not found",
+                "Could not find mysqladmin.exe for the running MySQL version.")
+            return
+
+        from providers._svc_win import run_cmd
+        r = run_cmd([mysqladmin, "-u", "root",
+                     f"--host=127.0.0.1", f"--port={port}",
+                     "password", pwd], timeout=15)
+        if r and r.returncode == 0:
+            QMessageBox.information(self, "Done",
+                f"Root password set.\n\n"
+                f"Update phpMyAdmin config.inc.php:\n"
+                f"  $cfg['Servers'][$i]['password'] = '{pwd}';\n"
+                f"And remove the AllowNoPassword line.")
+        else:
+            err = (r.stderr + r.stdout).strip() if r else "timeout"
+            QMessageBox.warning(self, "Failed",
+                f"Could not set password:\n{err}\n\n"
+                f"Make sure MySQL is running and the current root password is empty.")
+
+    def _inject_port80_hint(self):
+        C = theme.current_colors()
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame {{ background:#f0883e10; border:1px solid #f0883e40;"
+            f" border-radius:6px; }}"
+        )
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 10, 14, 10)
+        cl.setSpacing(6)
+        title_lbl = QLabel("Running without Administrator")
+        title_lbl.setStyleSheet("font-size:12px; font-weight:700; color:#f0883e; border:none;")
+        cl.addWidget(title_lbl)
+        info_lbl = QLabel(
+            "VC-managed installs use <b>port 8080</b> by default — no admin needed.<br>"
+            "To use port 80: change via <b>⚙ Port</b> button, then click "
+            "<b>Grant Port 80 Access</b> once (requires Administrator)."
+        )
+        info_lbl.setTextFormat(Qt.TextFormat.RichText)
+        info_lbl.setWordWrap(True)
+        info_lbl.setStyleSheet(f"font-size:11px; color:{C['text2']}; border:none; background:transparent;")
+        cl.addWidget(info_lbl)
+        grant_btn = QPushButton("Grant Port 80 Access (admin once)")
+        grant_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        grant_btn.setStyleSheet(
+            "QPushButton { background:transparent; color:#f0883e;"
+            " border:1px solid #f0883e; border-radius:5px;"
+            " font-size:11px; padding:4px 10px; }"
+            "QPushButton:hover { background:#f0883e15; }"
+        )
+        grant_btn.clicked.connect(self._grant_port_80)
+        cl.addWidget(grant_btn)
+        parent_layout = self.layout()
+        parent_layout.insertWidget(1, card)
+        parent_layout.insertSpacing(2, 8)
+
+    def _grant_port_80(self):
+        from providers._svc_win import grant_port_80
+        ok = grant_port_80()
+        if ok:
+            QMessageBox.information(self, "Done",
+                "Port 80 access granted.\n"
+                "Change the port to 80 via ⚙ Port, then start the service.")
+        else:
+            QMessageBox.warning(self, "Failed",
+                "Could not grant port 80 access.\n"
+                "Run VC as Administrator and try again.\n\n"
+                "Or use port 8080 (default) — works without admin.")
 
     def _start_sys(self):
         self._run_svc_action(self._svc.start, "start")
 
     def _stop_sys(self):
         self._run_svc_action(self._svc.stop, "stop")
+
+    def _grant_permissions(self, svc_name: str):
+        from providers._svc_win import grant_service_control
+        ok = grant_service_control(svc_name)
+        if ok:
+            QMessageBox.information(self, "Done",
+                f"Permissions granted on '{svc_name}'.\n"
+                "You can now Start/Stop without Administrator.")
+            self._load_info()
+        else:
+            QMessageBox.warning(self, "Failed",
+                "Could not grant permissions.\n"
+                "Run VC as Administrator and try again.")
 
     def _run_svc_action(self, fn, label: str):
         self._start_btn.setEnabled(False)
@@ -282,6 +574,31 @@ class DBVersionTab(QWidget):
             else:
                 QMessageBox.warning(self, "Error",
                     "Could not write config file.\nRun VC as Administrator.")
+
+    def _test_conn(self):
+        port = self._info.port if self._info else self._svc.default_port
+        self._test_btn.setEnabled(False)
+        self._test_btn.setText("…")
+        self._conn_thread = _ConnTestThread("127.0.0.1", port)
+        self._conn_thread.done.connect(self._on_conn_test)
+        self._conn_thread.start()
+
+    def _on_conn_test(self, ok: bool, port: int):
+        self._test_btn.setEnabled(True)
+        if ok:
+            self._test_btn.setText("✓ Open")
+            self._test_btn.setStyleSheet(
+                "QPushButton { background:transparent; color:#1a7f37;"
+                " border:1.5px solid #1a7f37; border-radius:5px;"
+                " font-size:12px; font-weight:600; }"
+            )
+        else:
+            self._test_btn.setText("✗ Closed")
+            self._test_btn.setStyleSheet(
+                "QPushButton { background:transparent; color:#cf222e;"
+                " border:1.5px solid #cf222e; border-radius:5px;"
+                " font-size:12px; font-weight:600; }"
+            )
 
     def _load(self):
         self._refresh_btn.setEnabled(False)
@@ -388,11 +705,9 @@ class DBVersionTab(QWidget):
         self._refresh_rows()
 
     def _refresh_rows(self):
-        from providers._svc_win import sc_query
         for row in range(self._table.rowCount()):
             ver = self._table.item(row, 0).text()
-            svc_name = self._svc._vc_svc(ver)  # noqa: protected
-            is_running = sc_query(svc_name) == "running"
+            is_running = self._svc.is_vc_running(ver)
             dest = self._svc.versions_root / ver
             is_inst = (dest / ".vc_managed").exists()
 
@@ -420,7 +735,7 @@ class DatabasePage(QWidget):
     def __init__(self, config=None, parent=None):
         super().__init__(parent)
         self._config = config
-        self._services: list[BaseService] = [
+        self._db_services: list[BaseService] = [
             MySQLService(config),
             PostgreSQLService(config),
             RedisService(config),
@@ -442,7 +757,7 @@ class DatabasePage(QWidget):
         layout.addWidget(sub)
 
         self._tab_widget = QTabWidget()
-        for svc in self._services:
+        for svc in self._db_services:
             tab = DBVersionTab(svc)
             self._tabs[svc.name] = tab
             self._tab_widget.addTab(tab, f"{svc.icon}  {svc.display_name}")

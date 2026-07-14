@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from providers.base_service import BaseService, ServiceInfo
-from providers._svc_win import run_cmd, find_service, sc_start, sc_stop, reg_enum_subkeys, reg_get
+from providers._svc_win import (
+    run_cmd, find_service, sc_start, sc_stop,
+    start_direct, stop_direct, pid_running,
+    reg_enum_subkeys, reg_get,
+)
 from core.base_manager import VersionInfo
 
 _SYS_SERVICES = ["MySQL80", "MySQL57", "MySQL56", "MySQL", "MySQL Server"]
@@ -126,6 +130,96 @@ def _extract_strip_root(zip_path: Path, dest: Path):
                 target.write_bytes(zf.read(member.filename))
 
 
+_PMA_VERSION = "5.2.1"
+_PMA_URL = (
+    "https://files.phpmyadmin.net/phpMyAdmin/{v}/phpMyAdmin-{v}-english.zip"
+)
+
+_PMA_CANDIDATES = [
+    Path(r"C:\laragon\etc\apps\phpMyAdmin"),
+    Path(r"C:\xampp\phpMyAdmin"),
+    Path(r"C:\wamp64\apps\phpmyadmin5.2.1"),
+    Path(r"C:\wamp\apps\phpmyadmin5.2.1"),
+]
+
+
+def find_phpmyadmin_dir() -> Optional[Path]:
+    """Return best target directory for phpMyAdmin (parent must exist)."""
+    for c in _PMA_CANDIDATES:
+        if c.parent.exists():
+            return c
+    return None
+
+
+def phpmyadmin_installed() -> bool:
+    d = find_phpmyadmin_dir()
+    return bool(d and (d / "index.php").exists())
+
+
+def setup_phpmyadmin(version: str, port: int = 3306,
+                     progress_callback: Optional[Callable] = None) -> bool:
+    """Download, extract, and configure phpMyAdmin."""
+    target = find_phpmyadmin_dir()
+    if not target:
+        raise RuntimeError(
+            "No supported web stack found.\n"
+            "Install Laragon or XAMPP first, then try again."
+        )
+
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+
+    url = _PMA_URL.format(v=version)
+    tmp = target / f"pma-{version}.zip"
+    try:
+        _download(url, tmp, progress_callback)
+    except Exception as e:
+        shutil.rmtree(target, ignore_errors=True)
+        raise RuntimeError(f"Download failed: {e}")
+
+    try:
+        with zipfile.ZipFile(tmp) as zf:
+            names = [m.filename for m in zf.infolist()]
+            top_dirs = {n.split("/")[0] for n in names if "/" in n}
+            strip = (next(iter(top_dirs)) + "/") if len(top_dirs) == 1 else ""
+            for member in zf.infolist():
+                rel = member.filename
+                if strip and rel.startswith(strip):
+                    rel = rel[len(strip):]
+                if not rel:
+                    continue
+                t = target / rel
+                if member.filename.endswith("/"):
+                    t.mkdir(parents=True, exist_ok=True)
+                else:
+                    t.parent.mkdir(parents=True, exist_ok=True)
+                    t.write_bytes(zf.read(member.filename))
+    except Exception as e:
+        shutil.rmtree(target, ignore_errors=True)
+        raise RuntimeError(f"Extraction failed: {e}")
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    # Write config.inc.php tuned for VC-managed MySQL
+    (target / "config.inc.php").write_text(
+        "<?php\n"
+        "$cfg['blowfish_secret'] = 'vc-pma-key-change-in-production-env';\n"
+        "$i = 0;\n"
+        "$i++;\n"
+        "$cfg['Servers'][$i]['auth_type'] = 'cookie';\n"
+        f"$cfg['Servers'][$i]['host'] = '127.0.0.1';\n"
+        f"$cfg['Servers'][$i]['port'] = '{port}';\n"
+        "$cfg['Servers'][$i]['connect_type'] = 'tcp';\n"
+        "$cfg['Servers'][$i]['compress'] = false;\n"
+        "$cfg['Servers'][$i]['AllowNoPassword'] = true;\n"
+        "$cfg['UploadDir'] = '';\n"
+        "$cfg['SaveDir'] = '';\n",
+        encoding="utf-8",
+    )
+    return True
+
+
 class MySQLService(BaseService):
     name = "mysql"
     display_name = "MySQL"
@@ -154,10 +248,7 @@ class MySQLService(BaseService):
         result = []
         for ver, date in _REMOTE:
             inst = ver in installed
-            active = False
-            if inst:
-                from providers._svc_win import sc_query
-                active = sc_query(self._vc_svc(ver)) == "running"
+            active = self.is_vc_running(ver) if inst else False
             result.append(VersionInfo(
                 version=ver, installed=inst, active=active,
                 release_date=date,
@@ -170,9 +261,7 @@ class MySQLService(BaseService):
         for d in sorted(self.versions_root.iterdir(), reverse=True):
             if not (d.is_dir() and (d / ".vc_managed").exists()):
                 continue
-            from providers._svc_win import sc_query
-            active = sc_query(self._vc_svc(d.name)) == "running"
-            result.append(VersionInfo(version=d.name, installed=True, active=active,
+            result.append(VersionInfo(version=d.name, installed=True, active=self.is_vc_running(d.name),
                                        install_path=d))
         return result
 
@@ -230,8 +319,8 @@ class MySQLService(BaseService):
 
     def uninstall_vc(self, version: str) -> bool:
         dest = self.versions_root / version
+        self.stop_vc(version)
         svc = self._vc_svc(version)
-        sc_stop(svc)
         mysqld = dest / "bin" / "mysqld.exe"
         if mysqld.exists():
             run_cmd([str(mysqld), "--remove", svc], timeout=30)
@@ -239,10 +328,48 @@ class MySQLService(BaseService):
         return True
 
     def start_vc(self, version: str) -> bool:
-        return sc_start(self._vc_svc(version))
+        # Try registered service first; fall back to direct binary (no admin needed)
+        if sc_start(self._vc_svc(version)):
+            return True
+        dest = self.versions_root / version
+        mysqld = dest / "bin" / "mysqld.exe"
+        ini = dest / "my.ini"
+        if not mysqld.exists():
+            return False
+        args = [str(mysqld), f"--defaults-file={ini}"]
+        return start_direct(args, dest / ".pid")
 
     def stop_vc(self, version: str) -> bool:
-        return sc_stop(self._vc_svc(version))
+        dest = self.versions_root / version
+        sc_stop(self._vc_svc(version))
+
+        # Graceful shutdown first — must run BEFORE killing the process
+        ini = dest / "my.ini"
+        admin = dest / "bin" / "mysqladmin.exe"
+        if admin.exists() and ini.exists():
+            run_cmd([str(admin), f"--defaults-file={ini}",
+                     "-uroot", "--host=127.0.0.1", "shutdown"], timeout=15)
+
+        # Force-kill tracked PID as fallback
+        stop_direct(dest / ".pid")
+
+        # Kill orphaned mysqld processes from this version dir
+        # MySQL on Windows spawns a second process not captured in .pid
+        if sys.platform == "win32":
+            mysqld_path = str(dest / "bin" / "mysqld.exe")
+            run_cmd([
+                "powershell", "-NoProfile", "-Command",
+                f"Get-Process mysqld -ErrorAction SilentlyContinue "
+                f"| Where-Object {{ $_.Path -eq '{mysqld_path}' }} "
+                f"| Stop-Process -Force",
+            ], timeout=10)
+        return True
+
+    def is_vc_running(self, version: str) -> bool:
+        from providers._svc_win import sc_query
+        if sc_query(self._vc_svc(version)) == "running":
+            return True
+        return pid_running(self.versions_root / version / ".pid")
 
     # ── service management (system-installed) ─────────────────────────────────
 

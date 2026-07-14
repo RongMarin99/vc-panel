@@ -3,12 +3,14 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont
 
 NAV_ITEMS = [
-    ("dashboard", "Dashboard", "🏠"),
-    ("versions",  "Versions",  "📦"),
-    ("databases", "Databases", "🗄"),
-    ("projects",  "Projects",  "📁"),
-    ("settings",  "Settings",  "⚙"),
-    ("about",     "Support ☕", ""),
+    ("dashboard",   "Dashboard",   "🏠"),
+    ("versions",    "Versions",    "📦"),
+    ("databases",   "Databases",   "🗄"),
+    ("webservers",  "Web Servers", "🌐"),
+    ("tools",       "Global Tools","🛠"),
+    ("projects",    "Projects",    "📁"),
+    ("settings",    "Settings",    "⚙"),
+    ("about",       "Support ☕",  ""),
 ]
 
 
@@ -53,7 +55,7 @@ class Sidebar(QWidget):
 
         layout.addStretch()
 
-        ver = QLabel("  v0.1.2")
+        ver = QLabel("  v0.2.0")
         ver.setStyleSheet("color: #6e7681; font-size: 11px; padding: 12px 16px;")
         layout.addWidget(ver)
 

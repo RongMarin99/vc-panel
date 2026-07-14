@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from providers.base_service import BaseService, ServiceInfo
-from providers._svc_win import run_cmd, find_service, sc_start, sc_stop
+from providers._svc_win import run_cmd, find_service, sc_start, sc_stop, start_direct, stop_direct, pid_running
 from core.base_manager import VersionInfo
 
 _SYS_SERVICES = ["MongoDB", "mongodb", "mongod"]
@@ -153,10 +153,7 @@ class MongoDBService(BaseService):
         result = []
         for ver, date in _REMOTE:
             inst = ver in installed
-            active = False
-            if inst:
-                from providers._svc_win import sc_query
-                active = sc_query(self._vc_svc(ver)) == "running"
+            active = self.is_vc_running(ver) if inst else False
             result.append(VersionInfo(version=ver, installed=inst, active=active,
                                        release_date=date,
                                        install_path=self.versions_root / ver if inst else None))
@@ -167,9 +164,7 @@ class MongoDBService(BaseService):
         for d in sorted(self.versions_root.iterdir(), reverse=True):
             if not (d.is_dir() and (d / ".vc_managed").exists()):
                 continue
-            from providers._svc_win import sc_query
-            active = sc_query(self._vc_svc(d.name)) == "running"
-            result.append(VersionInfo(version=d.name, installed=True, active=active,
+            result.append(VersionInfo(version=d.name, installed=True, active=self.is_vc_running(d.name),
                                        install_path=d))
         return result
 
@@ -226,8 +221,8 @@ class MongoDBService(BaseService):
 
     def uninstall_vc(self, version: str) -> bool:
         dest = self.versions_root / version
+        self.stop_vc(version)
         svc = self._vc_svc(version)
-        sc_stop(svc)
         mongod = dest / "bin" / "mongod.exe"
         if mongod.exists():
             run_cmd([str(mongod), "--remove", "--serviceName", svc], timeout=30)
@@ -235,10 +230,34 @@ class MongoDBService(BaseService):
         return True
 
     def start_vc(self, version: str) -> bool:
-        return sc_start(self._vc_svc(version))
+        if sc_start(self._vc_svc(version)):
+            return True
+        dest = self.versions_root / version
+        mongod = dest / "bin" / "mongod.exe"
+        cfg = dest / "mongod.cfg"
+        if not mongod.exists():
+            return False
+        args = [str(mongod)] + (["--config", str(cfg)] if cfg.exists() else [])
+        return start_direct(args, dest / ".pid")
 
     def stop_vc(self, version: str) -> bool:
-        return sc_stop(self._vc_svc(version))
+        dest = self.versions_root / version
+        sc_stop(self._vc_svc(version))
+        # Graceful shutdown via mongod --shutdown
+        mongod = dest / "bin" / "mongod.exe"
+        cfg = dest / "mongod.cfg"
+        data_dir = dest / "data" / "db"
+        if mongod.exists():
+            run_cmd([str(mongod), "--shutdown",
+                     "--dbpath", str(data_dir)], timeout=15)
+        stop_direct(dest / ".pid")
+        return True
+
+    def is_vc_running(self, version: str) -> bool:
+        from providers._svc_win import sc_query
+        if sc_query(self._vc_svc(version)) == "running":
+            return True
+        return pid_running(self.versions_root / version / ".pid")
 
     def _ensure_svc(self) -> str | None:
         if not self._svc_key:

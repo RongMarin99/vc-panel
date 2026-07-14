@@ -1,4 +1,4 @@
-import json
+"""Traefik reverse proxy — system detection + VC-managed installs from GitHub."""
 import re
 import shutil
 import urllib.request
@@ -7,37 +7,84 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from providers.base_service import BaseService, ServiceInfo
-from providers._svc_win import run_cmd, find_service, sc_start, sc_stop, start_direct, stop_direct, pid_running
+from providers._svc_win import (
+    run_cmd, find_service, sc_start, sc_stop,
+    start_direct, stop_direct, pid_running,
+)
 from core.base_manager import VersionInfo
 
-_SYS_SERVICES = ["Redis", "Redis-Server", "RedisServer", "redis"]
+_SYS_SERVICES = ["traefik", "Traefik"]
+
+_EXE_CANDIDATES = [
+    r"C:\traefik\traefik.exe",
+    r"C:\Program Files\Traefik\traefik.exe",
+    r"C:\tools\traefik\traefik.exe",
+]
 
 _CONF_CANDIDATES = [
-    r"C:\Program Files\Redis\redis.windows-service.conf",
-    r"C:\Program Files\Redis\redis.windows.conf",
-    r"C:\Program Files\Redis\redis.conf",
-    r"C:\Redis\redis.windows-service.conf",
-    r"C:\Redis\redis.conf",
+    r"C:\traefik\traefik.yml",
+    r"C:\traefik\traefik.yaml",
+    r"C:\traefik\traefik.toml",
+    r"C:\Program Files\Traefik\traefik.yml",
 ]
 
-# tporadowski/redis Windows port releases
 _REMOTE = [
-    ("5.0.14.1", "2021-10-22"),
-    ("5.0.10",   "2021-01-20"),
-    ("5.0.9",    "2020-10-04"),
+    ("3.1.0",  "2024-07-15"),
+    ("3.0.4",  "2024-07-10"),
+    ("3.0.3",  "2024-06-12"),
+    ("2.11.5", "2024-07-15"),
+    ("2.11.4", "2024-06-12"),
 ]
 
-_GH_API = "https://api.github.com/repos/tporadowski/redis/releases"
+_DEFAULT_CONFIG = """\
+# Traefik static configuration (managed by VC)
+# Port 8080 used by default — no admin required.
+# Change to :80 via the Port button (requires admin or netsh urlacl grant).
+api:
+  dashboard: true
+  insecure: true
+
+log:
+  level: INFO
+
+entryPoints:
+  web:
+    address: ":8080"
+  traefik:
+    address: ":8090"
+
+providers:
+  file:
+    directory: ./dynamic
+    watch: true
+"""
 
 
 def _dl_url(version: str) -> str:
     return (
-        f"https://github.com/tporadowski/redis/releases/download/"
-        f"v{version}/Redis-x64-{version}.zip"
+        f"https://github.com/traefik/traefik/releases/download/"
+        f"v{version}/traefik_v{version}_windows_amd64.zip"
     )
 
 
+def _find_sys_exe() -> str | None:
+    exe = shutil.which("traefik")
+    if exe:
+        return exe
+    for p in _EXE_CANDIDATES:
+        if Path(p).exists():
+            return p
+    return None
+
+
 def _find_sys_conf() -> str | None:
+    exe = _find_sys_exe()
+    if exe:
+        base = Path(exe).parent
+        for name in ("traefik.yml", "traefik.yaml", "traefik.toml"):
+            c = base / name
+            if c.exists():
+                return str(c)
     for p in _CONF_CANDIDATES:
         if Path(p).exists():
             return p
@@ -47,19 +94,25 @@ def _find_sys_conf() -> str | None:
 def _read_port(conf_path: str) -> int:
     try:
         text = Path(conf_path).read_text(encoding="utf-8", errors="replace")
-        m = re.search(r"^\s*port\s+(\d+)", text, re.MULTILINE | re.IGNORECASE)
-        return int(m.group(1)) if m else 6379
+        m = re.search(r'address\s*:\s*["\']?:(\d+)', text, re.MULTILINE)
+        if not m:
+            m = re.search(r'address\s*=\s*["\']:(\d+)', text, re.MULTILINE)
+        return int(m.group(1)) if m else 80
     except Exception:
-        return 6379
+        return 80
 
 
 def _write_port(conf_path: str, port: int) -> bool:
     try:
         text = Path(conf_path).read_text(encoding="utf-8", errors="replace")
-        new, n = re.subn(r"(^\s*port\s+)\d+", rf"\g<1>{port}",
-                         text, flags=re.MULTILINE | re.IGNORECASE)
+        # Replace the web entrypoint port specifically (first match)
+        new, n = re.subn(r'(address\s*:\s*["\']?):(\d+)', rf'\g<1>:{port}',
+                         text, count=1, flags=re.MULTILINE)
         if n == 0:
-            new += f"\nport {port}\n"
+            new, n = re.subn(r'(address\s*=\s*["\']?):(\d+)', rf'\g<1>:{port}',
+                             text, count=1, flags=re.MULTILINE)
+        if n == 0:
+            return False
         Path(conf_path).write_text(new, encoding="utf-8")
         return True
     except Exception:
@@ -67,19 +120,14 @@ def _write_port(conf_path: str, port: int) -> bool:
 
 
 def _get_sys_version() -> str | None:
-    for exe_name in ("redis-server", "redis-cli"):
-        exe = shutil.which(exe_name)
-        if not exe:
-            continue
-        r = run_cmd([exe, "--version"])
-        if not r:
-            continue
-        m = re.search(r"v=(\d+\.\d+[\.\d]*)", r.stdout + r.stderr)
-        if not m:
-            m = re.search(r"(\d+\.\d+\.\d+)", r.stdout + r.stderr)
-        if m:
-            return m.group(1)
-    return None
+    exe = _find_sys_exe()
+    if not exe:
+        return None
+    r = run_cmd([exe, "version"], timeout=5)
+    if not r:
+        return None
+    m = re.search(r"Version\s*:\s*v?(\d+\.\d+\.\d+)", r.stdout + r.stderr, re.IGNORECASE)
+    return m.group(1) if m else None
 
 
 def _download(url: str, dest: Path, progress_cb: Optional[Callable] = None):
@@ -99,22 +147,20 @@ def _download(url: str, dest: Path, progress_cb: Optional[Callable] = None):
 
 
 def _extract_flat(zip_path: Path, dest: Path):
-    """Extract all files from a flat zip (no root folder) into dest."""
+    """Traefik release zip is flat — just traefik.exe + LICENSE."""
     with zipfile.ZipFile(zip_path) as zf:
         for member in zf.infolist():
             if member.filename.endswith("/"):
-                (dest / member.filename).mkdir(parents=True, exist_ok=True)
-            else:
-                target = dest / member.filename
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(zf.read(member.filename))
+                continue
+            target = dest / Path(member.filename).name
+            target.write_bytes(zf.read(member.filename))
 
 
-class RedisService(BaseService):
-    name = "redis"
-    display_name = "Redis"
-    icon = "🔴"
-    default_port = 6379
+class TraefikService(BaseService):
+    name = "traefik"
+    display_name = "Traefik"
+    icon = "🔀"
+    default_port = 80
 
     def __init__(self, config=None):
         self._config = config
@@ -128,28 +174,15 @@ class RedisService(BaseService):
         return root
 
     def _vc_svc(self, version: str) -> str:
-        return f"VC-Redis-{version}"
+        return f"VC-Traefik-{version}"
+
+    # ── VC-managed version management ─────────────────────────────────────────
 
     def list_remote(self) -> list[VersionInfo]:
         installed = {d.name for d in self.versions_root.iterdir()
                      if d.is_dir() and (d / ".vc_managed").exists()}
-        # Try live fetch
-        versions = list(_REMOTE)
-        try:
-            req = urllib.request.Request(_GH_API,
-                headers={"User-Agent": "VC-VersionController/0.1"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                releases = json.loads(resp.read())
-            versions = [
-                (r["tag_name"].lstrip("v"), r.get("published_at", "")[:10])
-                for r in releases
-                if not r.get("prerelease") and not r.get("draft")
-            ][:10]
-        except Exception:
-            pass
-
         result = []
-        for ver, date in versions:
+        for ver, date in _REMOTE:
             inst = ver in installed
             active = self.is_vc_running(ver) if inst else False
             result.append(VersionInfo(version=ver, installed=inst, active=active,
@@ -162,8 +195,8 @@ class RedisService(BaseService):
         for d in sorted(self.versions_root.iterdir(), reverse=True):
             if not (d.is_dir() and (d / ".vc_managed").exists()):
                 continue
-            result.append(VersionInfo(version=d.name, installed=True, active=self.is_vc_running(d.name),
-                                       install_path=d))
+            result.append(VersionInfo(version=d.name, installed=True,
+                                       active=self.is_vc_running(d.name), install_path=d))
         return result
 
     def install(self, version: str, progress_callback: Optional[Callable] = None) -> bool:
@@ -173,7 +206,7 @@ class RedisService(BaseService):
         dest.mkdir(parents=True)
 
         url = _dl_url(version)
-        zip_path = dest / f"redis-{version}.zip"
+        zip_path = dest / f"traefik-{version}.zip"
         try:
             _download(url, zip_path, progress_callback)
         except Exception as e:
@@ -188,41 +221,32 @@ class RedisService(BaseService):
         finally:
             zip_path.unlink(missing_ok=True)
 
-        # Create service config
-        conf = dest / "redis.windows-service.conf"
-        if not conf.exists():
-            # Find any existing conf to copy
-            for name in ("redis.windows.conf", "redis.conf"):
-                src = dest / name
-                if src.exists():
-                    conf.write_bytes(src.read_bytes())
-                    break
-        if conf.exists():
-            text = conf.read_text(encoding="utf-8", errors="replace")
-            if "port" not in text.lower():
-                conf.write_text(text + f"\nport {self.default_port}\n", encoding="utf-8")
+        # Write default config
+        cfg = dest / "traefik.yml"
+        if not cfg.exists():
+            cfg.write_text(_DEFAULT_CONFIG, encoding="utf-8")
+
+        # Create dynamic config dir
+        (dest / "dynamic").mkdir(exist_ok=True)
 
         # Mark VC-managed
         (dest / ".vc_managed").write_text(version)
 
         # Try service registration
-        server = dest / "redis-server.exe"
-        if server.exists() and conf.exists():
-            run_cmd([str(server), str(conf),
-                     "--service-install",
-                     "--service-name", self._vc_svc(version)], timeout=30)
+        exe = dest / "traefik.exe"
+        if exe.exists():
+            run_cmd([str(exe), "--configfile", str(cfg),
+                     "--providers.file.directory", str(dest / "dynamic"),
+                     "install", "--name", self._vc_svc(version)], timeout=20)
 
         return True
 
     def uninstall_vc(self, version: str) -> bool:
-        dest = self.versions_root / version
         self.stop_vc(version)
-        svc = self._vc_svc(version)
-        server = dest / "redis-server.exe"
-        conf = dest / "redis.windows-service.conf"
-        if server.exists():
-            run_cmd([str(server), str(conf) if conf.exists() else "",
-                     "--service-uninstall", "--service-name", svc], timeout=30)
+        dest = self.versions_root / version
+        exe = dest / "traefik.exe"
+        if exe.exists():
+            run_cmd([str(exe), "uninstall", "--name", self._vc_svc(version)], timeout=10)
         shutil.rmtree(dest, ignore_errors=True)
         return True
 
@@ -230,25 +254,16 @@ class RedisService(BaseService):
         if sc_start(self._vc_svc(version)):
             return True
         dest = self.versions_root / version
-        server = dest / "redis-server.exe"
-        if not server.exists():
+        exe = dest / "traefik.exe"
+        cfg = dest / "traefik.yml"
+        if not exe.exists():
             return False
-        # Pick config file
-        conf = next(
-            (dest / n for n in ("redis.windows-service.conf", "redis.windows.conf", "redis.conf")
-             if (dest / n).exists()),
-            None,
-        )
-        args = [str(server)] + ([str(conf)] if conf else [])
+        args = [str(exe)] + (["--configfile", str(cfg)] if cfg.exists() else [])
         return start_direct(args, dest / ".pid")
 
     def stop_vc(self, version: str) -> bool:
         dest = self.versions_root / version
         sc_stop(self._vc_svc(version))
-        # Graceful shutdown via redis-cli SHUTDOWN
-        cli = dest / "redis-cli.exe"
-        if cli.exists():
-            run_cmd([str(cli), "shutdown", "nosave"], timeout=10)
         stop_direct(dest / ".pid")
         return True
 
@@ -258,28 +273,48 @@ class RedisService(BaseService):
             return True
         return pid_running(self.versions_root / version / ".pid")
 
+    # ── System service management ─────────────────────────────────────────────
+
     def _ensure_svc(self) -> str | None:
         if not self._svc_key:
             svc, _ = find_service(_SYS_SERVICES)
             self._svc_key = svc
         return self._svc_key
 
+    def _sys_pid_file(self) -> Path:
+        base = Path(self._config.versions_dir) if self._config else Path.home() / ".vc"
+        return base / "traefik_sys.pid"
+
     def info(self) -> ServiceInfo:
         svc, status = find_service(_SYS_SERVICES)
         self._svc_key = svc
+        if status is None:
+            if pid_running(self._sys_pid_file()):
+                status = "running"
+            else:
+                status = "not_found" if not _find_sys_exe() else "stopped"
         cfg = _find_sys_conf()
         port = _read_port(cfg) if cfg else self.default_port
         ver = _get_sys_version()
-        return ServiceInfo(status=status or "not_found", version=ver,
-                           port=port, config_path=cfg, service_key=svc)
+        return ServiceInfo(status=status, version=ver, port=port,
+                           config_path=cfg, service_key=svc)
 
     def start(self) -> bool:
         svc = self._ensure_svc()
-        return sc_start(svc) if svc else False
+        if svc and sc_start(svc):
+            return True
+        exe = _find_sys_exe()
+        if not exe:
+            return False
+        cfg = _find_sys_conf()
+        args = [exe] + (["--configfile", cfg] if cfg else [])
+        return start_direct(args, self._sys_pid_file())
 
     def stop(self) -> bool:
         svc = self._ensure_svc()
-        return sc_stop(svc) if svc else False
+        sc_stop(svc or "")
+        stop_direct(self._sys_pid_file())
+        return True
 
     def get_port(self) -> int:
         cfg = _find_sys_conf()

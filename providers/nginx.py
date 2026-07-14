@@ -1,5 +1,6 @@
-import shutil
+"""Nginx web server — system detection + VC-managed installs from nginx.org."""
 import re
+import shutil
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -8,49 +9,59 @@ from typing import Callable, Optional
 from providers.base_service import BaseService, ServiceInfo
 from providers._svc_win import (
     run_cmd, find_service, sc_start, sc_stop,
-    start_direct, stop_direct, pid_running,
-    reg_enum_subkeys, reg_get,
+    stop_direct, pid_running,
 )
 from core.base_manager import VersionInfo
 
-_SYS_SERVICES = [
-    "postgresql-x64-16", "postgresql-x64-15", "postgresql-x64-14",
-    "postgresql-x64-13", "postgresql-x64-12", "postgresql", "PostgreSQL",
+_SYS_SERVICES = ["nginx", "NGINXService", "nginx-service"]
+
+_NGINX_CANDIDATES = [
+    r"C:\nginx\nginx.exe",
+    r"C:\Program Files\nginx\nginx.exe",
+    r"C:\Program Files (x86)\nginx\nginx.exe",
 ]
 
 _CONF_CANDIDATES = [
-    r"C:\Program Files\PostgreSQL\16\data\postgresql.conf",
-    r"C:\Program Files\PostgreSQL\15\data\postgresql.conf",
-    r"C:\Program Files\PostgreSQL\14\data\postgresql.conf",
-    r"C:\Program Files\PostgreSQL\13\data\postgresql.conf",
+    r"C:\nginx\conf\nginx.conf",
+    r"C:\Program Files\nginx\conf\nginx.conf",
 ]
 
 _REMOTE = [
-    ("16.3", "2024-05-09"),
-    ("16.2", "2024-02-08"),
-    ("15.7", "2024-05-09"),
-    ("15.6", "2024-02-08"),
-    ("14.12", "2024-05-09"),
-    ("14.11", "2024-02-08"),
-    ("13.15", "2024-05-09"),
-    ("13.14", "2024-02-08"),
+    ("1.27.1", "2024-08-13"),
+    ("1.26.2", "2024-08-14"),
+    ("1.26.1", "2024-05-29"),
+    ("1.26.0", "2024-04-23"),
+    ("1.24.0", "2023-04-11"),
 ]
 
 
 def _dl_url(version: str) -> str:
-    return (
-        f"https://get.enterprisedb.com/postgresql/"
-        f"postgresql-{version}-1-windows-x64-binaries.zip"
-    )
+    return f"https://nginx.org/download/nginx-{version}.zip"
+
+
+def _find_sys_nginx() -> str | None:
+    exe = shutil.which("nginx")
+    if exe:
+        return exe
+    for p in _NGINX_CANDIDATES:
+        if Path(p).exists():
+            return p
+    for base in [Path(r"C:\laragon\bin\nginx"), Path(r"C:\wamp64\bin\nginx")]:
+        if base.exists():
+            for d in sorted(base.iterdir(), reverse=True):
+                h = d / "nginx.exe"
+                if h.exists():
+                    return str(h)
+    return None
 
 
 def _find_sys_conf() -> str | None:
-    for sub in reg_enum_subkeys(r"SOFTWARE\PostgreSQL\Installations"):
-        data = reg_get(rf"SOFTWARE\PostgreSQL\Installations\{sub}", "Data Directory")
-        if data:
-            conf = Path(data) / "postgresql.conf"
-            if conf.exists():
-                return str(conf)
+    exe = _find_sys_nginx()
+    if exe:
+        root = Path(exe).parent.parent
+        conf = root / "conf" / "nginx.conf"
+        if conf.exists():
+            return str(conf)
     for p in _CONF_CANDIDATES:
         if Path(p).exists():
             return p
@@ -60,19 +71,19 @@ def _find_sys_conf() -> str | None:
 def _read_port(conf_path: str) -> int:
     try:
         text = Path(conf_path).read_text(encoding="utf-8", errors="replace")
-        m = re.search(r"^\s*port\s*=\s*(\d+)", text, re.MULTILINE)
-        return int(m.group(1)) if m else 5432
+        m = re.search(r"listen\s+(\d+)\s*;", text, re.MULTILINE | re.IGNORECASE)
+        return int(m.group(1)) if m else 80
     except Exception:
-        return 5432
+        return 80
 
 
 def _write_port(conf_path: str, port: int) -> bool:
     try:
         text = Path(conf_path).read_text(encoding="utf-8", errors="replace")
-        new, n = re.subn(r"^#?\s*(port\s*=\s*)\d+", rf"\g<1>{port}",
-                         text, flags=re.MULTILINE)
+        new, n = re.subn(r"(listen\s+)\d+(\s*;)", rf"\g<1>{port}\2",
+                         text, flags=re.MULTILINE | re.IGNORECASE)
         if n == 0:
-            new += f"\nport = {port}\n"
+            return False
         Path(conf_path).write_text(new, encoding="utf-8")
         return True
     except Exception:
@@ -80,13 +91,13 @@ def _write_port(conf_path: str, port: int) -> bool:
 
 
 def _get_sys_version() -> str | None:
-    exe = shutil.which("psql")
+    exe = _find_sys_nginx()
     if not exe:
         return None
-    r = run_cmd([exe, "--version"])
+    r = run_cmd([exe, "-v"], timeout=5)
     if not r:
         return None
-    m = re.search(r"(\d+\.\d+(?:\.\d+)?)", r.stdout + r.stderr)
+    m = re.search(r"nginx/(\d+\.\d+\.\d+)", r.stdout + r.stderr)
     return m.group(1) if m else None
 
 
@@ -120,11 +131,16 @@ def _extract_strip_root(zip_path: Path, dest: Path):
                 target.write_bytes(zf.read(member.filename))
 
 
-class PostgreSQLService(BaseService):
-    name = "postgresql"
-    display_name = "PostgreSQL"
-    icon = "🐘"
-    default_port = 5432
+def _nginx_pid_file(dest: Path) -> Path:
+    """Nginx writes its own PID to logs/nginx.pid. Use that for status checks."""
+    return dest / "logs" / "nginx.pid"
+
+
+class NginxService(BaseService):
+    name = "nginx"
+    display_name = "Nginx"
+    icon = "🔷"
+    default_port = 80
 
     def __init__(self, config=None):
         self._config = config
@@ -138,7 +154,13 @@ class PostgreSQLService(BaseService):
         return root
 
     def _vc_svc(self, version: str) -> str:
-        return f"VC-PostgreSQL-{version}"
+        return f"VC-Nginx-{version}"
+
+    def _sys_pid_file(self) -> Path:
+        base = Path(self._config.versions_dir) if self._config else Path.home() / ".vc"
+        return base / "nginx_sys.pid"
+
+    # ── VC-managed version management ─────────────────────────────────────────
 
     def list_remote(self) -> list[VersionInfo]:
         installed = {d.name for d in self.versions_root.iterdir()
@@ -157,8 +179,8 @@ class PostgreSQLService(BaseService):
         for d in sorted(self.versions_root.iterdir(), reverse=True):
             if not (d.is_dir() and (d / ".vc_managed").exists()):
                 continue
-            result.append(VersionInfo(version=d.name, installed=True, active=self.is_vc_running(d.name),
-                                       install_path=d))
+            result.append(VersionInfo(version=d.name, installed=True,
+                                       active=self.is_vc_running(d.name), install_path=d))
         return result
 
     def install(self, version: str, progress_callback: Optional[Callable] = None) -> bool:
@@ -168,7 +190,7 @@ class PostgreSQLService(BaseService):
         dest.mkdir(parents=True)
 
         url = _dl_url(version)
-        zip_path = dest / f"postgresql-{version}.zip"
+        zip_path = dest / f"nginx-{version}.zip"
         try:
             _download(url, zip_path, progress_callback)
         except Exception as e:
@@ -176,7 +198,6 @@ class PostgreSQLService(BaseService):
             raise RuntimeError(f"Download failed: {e}")
 
         try:
-            # EnterpriseDB zip has a pgsql/ root directory
             _extract_strip_root(zip_path, dest)
         except Exception as e:
             shutil.rmtree(dest, ignore_errors=True)
@@ -184,74 +205,48 @@ class PostgreSQLService(BaseService):
         finally:
             zip_path.unlink(missing_ok=True)
 
-        # Initialize data directory
-        data_dir = dest / "data"
-        initdb = dest / "bin" / "initdb.exe"
-        if initdb.exists():
-            run_cmd([str(initdb), "-D", str(data_dir), "-U", "postgres",
-                     "--no-locale", "--encoding=UTF8"], timeout=120)
+        # Ensure logs dir exists (nginx needs it)
+        (dest / "logs").mkdir(exist_ok=True)
+
+        # Use port 8080 so VC-managed nginx starts without admin (port 80 needs admin)
+        conf = dest / "conf" / "nginx.conf"
+        if conf.exists():
+            text = conf.read_text(encoding="utf-8", errors="replace")
+            text = re.sub(r'(listen\s+)80(\s*;)', r'\g<1>8080\2',
+                          text, flags=re.MULTILINE | re.IGNORECASE)
+            conf.write_text(text, encoding="utf-8")
 
         # Mark VC-managed
         (dest / ".vc_managed").write_text(version)
-
-        # Try service registration
-        pg_ctl = dest / "bin" / "pg_ctl.exe"
-        if pg_ctl.exists() and data_dir.exists():
-            run_cmd([str(pg_ctl), "register",
-                     "-N", self._vc_svc(version),
-                     "-D", str(data_dir)], timeout=30)
-
         return True
 
     def uninstall_vc(self, version: str) -> bool:
-        dest = self.versions_root / version
         self.stop_vc(version)
-        svc = self._vc_svc(version)
-        pg_ctl = dest / "bin" / "pg_ctl.exe"
-        if pg_ctl.exists():
-            run_cmd([str(pg_ctl), "unregister", "-N", svc], timeout=30)
-        shutil.rmtree(dest, ignore_errors=True)
+        shutil.rmtree(self.versions_root / version, ignore_errors=True)
         return True
 
     def start_vc(self, version: str) -> bool:
-        if sc_start(self._vc_svc(version)):
-            return True
         dest = self.versions_root / version
-        pg_ctl = dest / "bin" / "pg_ctl.exe"
-        data_dir = dest / "data"
-        log_file = dest / "data" / "pg.log"
-        if not pg_ctl.exists() or not data_dir.exists():
+        nginx = dest / "nginx.exe"
+        if not nginx.exists():
             return False
-        # pg_ctl start is the proper non-service way; it daemonizes itself
-        r = run_cmd([str(pg_ctl), "start", "-D", str(data_dir),
-                     "-l", str(log_file)], timeout=30)
-        if r and r.returncode == 0:
-            # Save pg_ctl PID sentinel so we know it was started directly
-            (dest / ".pid").write_text("direct")
-            return True
-        return False
+        # nginx does NOT daemonize on Windows — must use DETACHED_PROCESS
+        from providers._svc_win import start_direct
+        return start_direct([str(nginx), "-p", str(dest)], dest / ".pid")
 
     def stop_vc(self, version: str) -> bool:
         dest = self.versions_root / version
-        sc_stop(self._vc_svc(version))
-        pg_ctl = dest / "bin" / "pg_ctl.exe"
-        data_dir = dest / "data"
-        if pg_ctl.exists() and data_dir.exists():
-            run_cmd([str(pg_ctl), "stop", "-D", str(data_dir), "-m", "fast"], timeout=30)
-        (dest / ".pid").unlink(missing_ok=True)
+        nginx = dest / "nginx.exe"
+        if nginx.exists():
+            # Graceful quit via nginx signal (uses logs/nginx.pid internally)
+            run_cmd([str(nginx), "-p", str(dest), "-s", "quit"], timeout=10)
+        stop_direct(dest / ".pid")
         return True
 
     def is_vc_running(self, version: str) -> bool:
-        from providers._svc_win import sc_query
-        if sc_query(self._vc_svc(version)) == "running":
-            return True
-        dest = self.versions_root / version
-        pg_ctl = dest / "bin" / "pg_ctl.exe"
-        data_dir = dest / "data"
-        if pg_ctl.exists() and data_dir.exists():
-            r = run_cmd([str(pg_ctl), "status", "-D", str(data_dir)], timeout=5)
-            return bool(r and r.returncode == 0)
-        return False
+        return pid_running(self.versions_root / version / ".pid")
+
+    # ── System service management ─────────────────────────────────────────────
 
     def _ensure_svc(self) -> str | None:
         if not self._svc_key:
@@ -259,22 +254,49 @@ class PostgreSQLService(BaseService):
             self._svc_key = svc
         return self._svc_key
 
+    def _sys_pid_file(self) -> Path:
+        base = Path(self._config.versions_dir) if self._config else Path.home() / ".vc"
+        return base / "nginx_sys.pid"
+
     def info(self) -> ServiceInfo:
         svc, status = find_service(_SYS_SERVICES)
         self._svc_key = svc
+        if status is None:
+            exe = _find_sys_nginx()
+            if not exe:
+                status = "not_found"
+            elif pid_running(self._sys_pid_file()):
+                status = "running"
+            else:
+                # Also check nginx's own logs/nginx.pid (system-managed)
+                root = Path(exe).parent.parent
+                status = "running" if pid_running(root / "logs" / "nginx.pid") else "stopped"
         cfg = _find_sys_conf()
         port = _read_port(cfg) if cfg else self.default_port
         ver = _get_sys_version()
-        return ServiceInfo(status=status or "not_found", version=ver,
-                           port=port, config_path=cfg, service_key=svc)
+        return ServiceInfo(status=status, version=ver, port=port,
+                           config_path=cfg, service_key=svc)
 
     def start(self) -> bool:
         svc = self._ensure_svc()
-        return sc_start(svc) if svc else False
+        if svc and sc_start(svc):
+            return True
+        exe = _find_sys_nginx()
+        if not exe:
+            return False
+        root = Path(exe).parent.parent
+        from providers._svc_win import start_direct
+        return start_direct([exe, "-p", str(root)], self._sys_pid_file())
 
     def stop(self) -> bool:
         svc = self._ensure_svc()
-        return sc_stop(svc) if svc else False
+        sc_stop(svc or "")
+        exe = _find_sys_nginx()
+        if exe:
+            root = Path(exe).parent.parent
+            run_cmd([exe, "-p", str(root), "-s", "quit"], timeout=10)
+        stop_direct(self._sys_pid_file())
+        return True
 
     def get_port(self) -> int:
         cfg = _find_sys_conf()

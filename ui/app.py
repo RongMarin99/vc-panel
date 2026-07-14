@@ -12,6 +12,8 @@ from ui.pages.project_config import ProjectConfigPage
 from ui.pages.settings import SettingsPage
 from ui.pages.about import AboutPage
 from ui.pages.database_page import DatabasePage
+from ui.pages.web_server_page import WebServerPage
+from ui.pages.tools_page import ToolsPage
 import ui.theme as theme
 from core.registry import Registry
 from storage.config import Config
@@ -83,12 +85,14 @@ class MainWindow(QMainWindow):
         main.addWidget(right)
 
         self.pages = {
-            "dashboard": DashboardPage(self.registry, self.config),
-            "versions":  VersionManagerPage(self.registry, self.config),
-            "databases": DatabasePage(self.config),
-            "projects":  ProjectConfigPage(self.registry, self.config, self.db),
-            "settings":  SettingsPage(self.config),
-            "about":     AboutPage(),
+            "dashboard":  DashboardPage(self.registry, self.config),
+            "versions":   VersionManagerPage(self.registry, self.config),
+            "databases":  DatabasePage(self.config),
+            "webservers": WebServerPage(self.config),
+            "tools":      ToolsPage(self.config),
+            "projects":   ProjectConfigPage(self.registry, self.config, self.db),
+            "settings":   SettingsPage(self.config),
+            "about":      AboutPage(),
         }
         for page in self.pages.values():
             self.stack.addWidget(page)

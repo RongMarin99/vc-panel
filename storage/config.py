@@ -9,11 +9,12 @@ class Config:
     def __init__(self):
         self.home = Path.home() / f".{self.APP_NAME}"
         self.versions_dir = self.home / "versions"
+        self.tools_dir = self.home / "tools"
         self.shims_dir = self.home / "shims"
         self.config_file = self.home / "config.json"
         self.db_path = self.home / "vc.db"
 
-        for d in [self.versions_dir, self.shims_dir]:
+        for d in [self.versions_dir, self.tools_dir, self.shims_dir]:
             d.mkdir(parents=True, exist_ok=True)
 
         self._data = self._load()

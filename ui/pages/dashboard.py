@@ -308,6 +308,7 @@ class DashboardPage(QWidget):
         self.registry = registry
         self.config = config
         self._db_services = []
+        self._ws_services = []
         self._build()
 
     def _build(self):
@@ -358,6 +359,24 @@ class DashboardPage(QWidget):
         self._db_grid = QGridLayout()
         self._db_grid.setSpacing(16)
         layout.addLayout(self._db_grid)
+        layout.addSpacing(28)
+
+        # ── Web Servers ───────────────────────────────────────────────────────
+        ws_row = QHBoxLayout()
+        ws_row.addWidget(self._section_header("Web Servers", "🌐"))
+        ws_row.addStretch()
+        self._ws_refresh_btn = QPushButton("↻")
+        self._ws_refresh_btn.setFixedSize(28, 28)
+        self._ws_refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ws_refresh_btn.setToolTip("Refresh web server status")
+        self._ws_refresh_btn.clicked.connect(self._scan_ws)
+        ws_row.addWidget(self._ws_refresh_btn)
+        layout.addLayout(ws_row)
+        layout.addSpacing(12)
+
+        self._ws_grid = QGridLayout()
+        self._ws_grid.setSpacing(16)
+        layout.addLayout(self._ws_grid)
         layout.addSpacing(28)
 
         # Shims bar
@@ -417,7 +436,18 @@ class DashboardPage(QWidget):
                 MongoDBService(self.config),
             ]
 
+        if not self._ws_services:
+            from providers.apache import ApacheService
+            from providers.nginx import NginxService
+            from providers.traefik import TraefikService
+            self._ws_services = [
+                ApacheService(self.config),
+                NginxService(self.config),
+                TraefikService(self.config),
+            ]
+
         self._scan_dbs()
+        self._scan_ws()
 
     def _scan_dbs(self):
         self._db_refresh_btn.setEnabled(False)
@@ -459,3 +489,43 @@ class DashboardPage(QWidget):
             card.action_done.connect(self._scan_dbs)
             row, col = divmod(i, 4)
             self._db_grid.addWidget(card, row, col)
+
+    def _scan_ws(self):
+        self._ws_refresh_btn.setEnabled(False)
+        while self._ws_grid.count():
+            item = self._ws_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for i, svc in enumerate(self._ws_services):
+            ph = QFrame()
+            ph.setObjectName("card")
+            ph.setMinimumWidth(200)
+            ph.setMaximumWidth(300)
+            ph_layout = QVBoxLayout(ph)
+            ph_layout.setContentsMargins(16, 14, 16, 14)
+            lbl = QLabel(f"{svc.icon}  {svc.display_name}")
+            lbl.setStyleSheet("font-size:13px; font-weight:600;")
+            ph_layout.addWidget(lbl)
+            scanning = QLabel("Scanning…")
+            scanning.setStyleSheet("color:#8b949e; font-size:12px;")
+            ph_layout.addWidget(scanning)
+            row, col = divmod(i, 4)
+            self._ws_grid.addWidget(ph, row, col)
+
+        self._ws_scan_thread = _DBScanThread(self._ws_services)
+        self._ws_scan_thread.done.connect(self._on_ws_scanned)
+        self._ws_scan_thread.start()
+
+    def _on_ws_scanned(self, results):
+        self._ws_refresh_btn.setEnabled(True)
+        while self._ws_grid.count():
+            item = self._ws_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for i, (svc, info) in enumerate(results):
+            card = DBCard(svc, info)
+            card.action_done.connect(self._scan_ws)
+            row, col = divmod(i, 4)
+            self._ws_grid.addWidget(card, row, col)
