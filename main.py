@@ -37,7 +37,7 @@ def main():
     app.setStyle(QStyleFactory.create("Fusion"))
     app.setApplicationName("VC")
     app.setApplicationDisplayName("VC — Version Controller")
-    app.setApplicationVersion("0.2.0")
+    app.setApplicationVersion("0.2.1")
 
     config = Config()
     db = Database(config.db_path)

@@ -105,6 +105,7 @@ class DotnetManager(BaseManager):
             return False
         self.config.set_active("dotnet", version)
         create_shim(self.shims_dir, "dotnet", binary)
+        self._cache = None
         return True
 
     def current(self) -> Optional[str]:

@@ -132,6 +132,7 @@ class PHPManager(BaseManager):
             return False
         self.config.set_active("php", version)
         create_shim(self.shims_dir, "php", binary)
+        self._cache = None
         return True
 
     def current(self) -> Optional[str]:

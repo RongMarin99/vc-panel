@@ -3,7 +3,7 @@ from pathlib import Path
 from packaging.version import Version
 from typing import Callable, Optional
 
-CURRENT_VERSION = "0.2.0"
+CURRENT_VERSION = "0.2.1"
 GITHUB_REPO     = "RongMarin99/vc-panel"
 RELEASES_URL    = f"https://github.com/{GITHUB_REPO}/releases"
 _API_URL        = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"

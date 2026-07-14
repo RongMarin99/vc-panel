@@ -55,7 +55,7 @@ class Sidebar(QWidget):
 
         layout.addStretch()
 
-        ver = QLabel("  v0.2.0")
+        ver = QLabel("  v0.2.1")
         ver.setStyleSheet("color: #6e7681; font-size: 11px; padding: 12px 16px;")
         layout.addWidget(ver)
 

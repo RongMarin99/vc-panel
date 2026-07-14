@@ -106,6 +106,7 @@ class GoManager(BaseManager):
             exe = bin_dir / (f"{tool}.exe" if is_windows() else tool)
             if exe.exists():
                 create_shim(self.shims_dir, tool, exe)
+        self._cache = None
         return True
 
     def current(self) -> Optional[str]:

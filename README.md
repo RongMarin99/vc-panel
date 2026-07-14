@@ -121,3 +121,49 @@ VC-Panel is free and open-source software. You are free to use, modify, distribu
 
 **One panel. Every language. Total control.**
 
+
+Everything ready. Run these commands in order inside d:\Projects\Python\VC:
+
+
+
+
+---
+
+
+
+
+Step 1 — clean old build
+
+POWERSHELL
+Remove-Item -Recurse -Force build\exe.win-amd64-3.13 -ErrorAction SilentlyContinue
+
+
+
+Step 2 — rebuild with cx_Freeze
+
+POWERSHELL
+.venv\Scripts\python setup_freeze.py build_exe
+
+
+
+Step 3 — compile installer (Inno Setup)
+
+POWERSHELL
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+
+
+Step 4 — push to GitHub
+
+POWERSHELL
+git push origin main --tags
+
+
+
+---
+
+
+
+
+Output will be dist\VC-Setup-0.2.0.exe. Steps 1–3 take ~2–3 minutes total.
+

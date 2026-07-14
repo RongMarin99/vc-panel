@@ -107,6 +107,7 @@ class NodeManager(BaseManager):
                 if p.exists():
                     create_shim(self.shims_dir, tool, p)
                     break
+        self._cache = None
         return True
 
     def current(self) -> Optional[str]:
